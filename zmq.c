@@ -149,7 +149,7 @@ static void _zmq_create_socket(t_zmq *x, t_symbol *s) {
     * but makes it easier for us to manage complexity
     */
    if(x->zmq_socket) {
-       post("closing socket before openeing a new one");
+       post("closing socket before opening a new one");
       sys_rmpollfn(x->zmq_fd);
        _zmq_close(x);
    }
@@ -388,16 +388,10 @@ static void _zmq_send(t_zmq *x, t_symbol *s, int argc, t_atom* argv) {
    char *buf;
    t_binbuf *b = 0;
 
-   t_atom at;
    b = binbuf_new();
    binbuf_add(b, argc, argv);
-   SETSEMI(&at);
-   binbuf_add(b, 1, &at);
    binbuf_gettext(b, &buf, &length);
-   //post("msg length %i", length);
-
-   //s_send(x->zmq_socket, buf);
-   r=zmq_send(x->zmq_socket, buf, strlen(buf), 0);
+   r = zmq_send(x->zmq_socket, buf, length, 0);
 
    t_freebytes(buf, length);
    binbuf_free(b);
@@ -425,7 +419,7 @@ static void _zmq_receive(t_zmq *x) {
    }
 
    int r, err;
-   char buf[MAXPDSTRING];
+   char buf[MAXPDSTRING+2];
    t_binbuf *b;
    int msg;
 
@@ -435,8 +429,9 @@ static void _zmq_receive(t_zmq *x) {
            r = MAXPDSTRING; // brutally cut off excessive bytes
            pd_error(x, "zmq_receive: received message too big for buffer. truncated.");
        }
-       buf[r - 1] = 0; // terminate string
        if(r > 0) {
+          buf[r++] = ' ';  // Ugly solution for proper atom detection
+          buf[r] = 0;      // terminate string
           b = binbuf_new();
           binbuf_text(b, buf, r);
           // the following code is cp'ed from x_net.c::netreceive_doit
