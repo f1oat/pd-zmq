@@ -23,6 +23,9 @@
 # define randof(num) (int) ((float) (num) * random () / (RAND_MAX + 1.0))
 #endif
 
+typedef void (*t_fdpollfn)(void* ptr, int fd);
+EXTERN void sys_addpollfn(int fd, t_fdpollfn fn, void* ptr);
+EXTERN void sys_rmpollfn(int fd);
 
 // shim macros for version independence
 #ifndef ZMQ_DONTWAIT
@@ -47,7 +50,8 @@ typedef struct _zmq {
    t_object  x_obj;
    void      *zmq_context;
    void      *zmq_socket;
-   t_clock   *x_clock;
+   int       zmq_fd; // For poll
+   //t_clock   *x_clock;
    t_outlet  *s_out;
    int       run_receiver;
    int       socket_type;
@@ -77,7 +81,7 @@ static void *zmq_new(t_symbol *s, int argc, t_atom *argv)
    t_zmq *x = (t_zmq *)pd_new(zmq_class);
 
    char v[64];
-   sprintf(v, "version: %i.%i.%i", ZMQ_VERSION_MAJOR, ZMQ_VERSION_MINOR, ZMQ_VERSION_PATCH);
+   sprintf(v, "ZMQ version F1OAT: %i.%i.%i", ZMQ_VERSION_MAJOR, ZMQ_VERSION_MINOR, ZMQ_VERSION_PATCH);
    post(v);
 
 #if ZMQ_VERSION_MAJOR > 2
@@ -88,7 +92,7 @@ static void *zmq_new(t_symbol *s, int argc, t_atom *argv)
    if(x->zmq_context) {
       post("ØMQ context initialized");
       x->s_out = outlet_new(&x->x_obj, &s_symbol);
-      x->x_clock = clock_new(x, (t_method)_zmq_msg_tick);
+      //x->x_clock = clock_new(x, (t_method)_zmq_msg_tick);
 //      x->s_out = outlet_new(&x->x_obj, &s_float);
    } else {
       post("ØMQ context failed to initialize");
@@ -101,8 +105,9 @@ static void *zmq_new(t_symbol *s, int argc, t_atom *argv)
  * destructor
  */
 static void zmq_destroy(t_zmq *x) {
-   clock_free(x->x_clock);
+   //clock_free(x->x_clock);
    _zmq_stop_receiver(x);
+   sys_rmpollfn(x->zmq_fd);
    _zmq_close(x);
    if(x->zmq_context) {
 #if ZMQ_VERSION_MAJOR > 2
@@ -145,6 +150,7 @@ static void _zmq_create_socket(t_zmq *x, t_symbol *s) {
     */
    if(x->zmq_socket) {
        post("closing socket before openeing a new one");
+      sys_rmpollfn(x->zmq_fd);
        _zmq_close(x);
    }
    int type = 0;
@@ -173,7 +179,14 @@ static void _zmq_create_socket(t_zmq *x, t_symbol *s) {
 
    x->socket_type = type;
    x->socket_state = NONE;
+   
    x->zmq_socket = zmq_socket(x->zmq_context, type);
+
+   size_t len = sizeof(x->zmq_fd);
+   int rc = zmq_getsockopt(x->zmq_socket, ZMQ_FD, &x->zmq_fd, &len);  
+   if (rc) pd_error(x, "zmq_getsockopt ZMQ_FD error");
+   else sys_addpollfn(x->zmq_fd, (t_fdpollfn)_zmq_msg_tick, x); 
+
    _s_set_identity(x);
 
 }
@@ -203,7 +216,7 @@ static void _zmq_start_receiver(t_zmq *x) {
    if(_can_receive(x)) {
        post("starting receiver");
        x->run_receiver = 1;
-       _zmq_msg_tick(x);
+       //_zmq_msg_tick(x);
    }
 }
 static void _zmq_stop_receiver(t_zmq *x) {
@@ -215,9 +228,24 @@ static void _zmq_stop_receiver(t_zmq *x) {
  */
 void _zmq_msg_tick(t_zmq *x) {
 
-   if ( ! x->run_receiver) return;
-   _zmq_receive(x);
-   clock_delay(x->x_clock, 1);
+   //post("_zmq_msg_tick");
+
+   //if ( ! x->run_receiver) return;
+   
+   int events;
+
+   do {
+      size_t len = sizeof(events);
+      int rc = zmq_getsockopt(x->zmq_socket, ZMQ_EVENTS, &events, &len);
+      if (rc) {
+         pd_error(x, "zmq_getsockopt ZMQ_EVENTS error %d", rc);
+         break;
+      }
+      //post("zmq_getsockopt ZMQ_EVENTS events=%d", events);
+      if (events & ZMQ_POLLIN) _zmq_receive(x);
+   } while (events & ZMQ_POLLIN);
+
+   //clock_delay(x->x_clock, 1);
 }
 
 /**
