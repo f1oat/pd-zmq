@@ -409,6 +409,71 @@ static void _zmq_send(t_zmq *x, t_symbol *s, int argc, t_atom* argv) {
    return;
 }
 
+
+static void _zmq_send_array(t_zmq *x,  t_symbol *topic, t_symbol *name)
+{
+   if ( ! x->zmq_socket) {
+      post("[!] create and connect socket before sending");
+      return;
+   }
+
+   if ( ! _can_send(x)) {
+       return;
+   }
+
+   t_garray *a;
+   t_word *data;
+   int npoints;
+
+   if (!(a = (t_garray *)pd_findbyclass(name, garray_class)))
+   {
+      if (*name->s_name)
+         pd_error(x, "zmq_send_array: %s: no such array", name->s_name);
+      return;
+
+   }
+   else if (!garray_getfloatwords(a, &npoints, &data))
+   {
+      pd_error(x, "zmq_send_array: %s: bad template for tabread~", name->s_name);
+      return;
+   }
+
+   int r;
+   int topic_len = strlen(topic->s_name);
+   int length = topic_len + 1 + npoints;
+
+   unsigned char *buf = calloc(1, length);
+   if (!buf) {
+      pd_error(x, "zmq_send_array: cannot allocate buf of %d bytes", length);
+      return;
+   }
+
+   memcpy(buf, topic->s_name, topic_len+1);
+   unsigned char *p = buf + topic_len + 1;
+   for (int i = 0; i<npoints; i++) {
+      float v = data[i].w_float;
+      if (v < 0) *p++ = 0;
+      else if (v >= 256) *p++ = 255;     
+      else *p++ = (unsigned char)v;
+   }
+
+   r = zmq_send(x->zmq_socket, buf, length, 0);
+
+   free(buf);
+
+   if(r == -1) {
+      _zmq_error(zmq_errno());
+      return;
+   }
+
+   // if REQ socket wait for reply
+   if(x->socket_type == ZMQ_REQ) {
+      _zmq_receive(x);
+   }
+
+   return;
+}
+
 /**
  * fetch a message
  */
@@ -518,6 +583,7 @@ void zmq_setup(void)
    class_addmethod(zmq_class, (t_method)_zmq_send, gensym("send"), A_GIMME, 0);
    class_addmethod(zmq_class, (t_method)_zmq_subscribe, gensym("subscribe"), A_SYMBOL, 0);
    class_addmethod(zmq_class, (t_method)_zmq_unsubscribe, gensym("unsubscribe"), A_SYMBOL, 0);
+   class_addmethod(zmq_class, (t_method)_zmq_send_array, gensym("send_array"), A_SYMBOL, A_SYMBOL, 0);
 }
 
 /**
