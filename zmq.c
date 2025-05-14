@@ -79,10 +79,7 @@ static char _can_receive(t_zmq *x);
 static void *zmq_new(t_symbol *s, int argc, t_atom *argv)
 {
    t_zmq *x = (t_zmq *)pd_new(zmq_class);
-
-   char v[64];
-   sprintf(v, "ZMQ version F1OAT: %i.%i.%i", ZMQ_VERSION_MAJOR, ZMQ_VERSION_MINOR, ZMQ_VERSION_PATCH);
-   post(v);
+   post("ZMQ version F1OAT: %i.%i.%i", ZMQ_VERSION_MAJOR, ZMQ_VERSION_MINOR, ZMQ_VERSION_PATCH);
 
 #if ZMQ_VERSION_MAJOR > 2
    x->zmq_context = zmq_ctx_new();
@@ -115,7 +112,10 @@ static void zmq_destroy(t_zmq *x) {
 #else
       int r=zmq_term(x->zmq_context);
 #endif
-      if(r==0) post("ØMQ context destroyed");
+      if(r==0) {
+         x->zmq_context = NULL;
+         post("ØMQ context destroyed");
+      }
    }
 }
 
@@ -133,10 +133,8 @@ static void _zmq_about(void)
  */
 static void _zmq_version(void) {
    int major, minor, patch;
-   char verstr[64];
    zmq_version(&major, &minor, &patch);
-   sprintf(verstr, "ØMQ version: %d.%d.%d", major, minor, patch);
-   post(verstr);
+   post("ØMQ version: %d.%d.%d", major, minor, patch);
 }
 
 /**
@@ -362,6 +360,7 @@ static void _zmq_close(t_zmq *x) {
       if(r == 0) {
          post("socket closed");
          //free(x->zmq_socket);
+         sys_rmpollfn(x->zmq_fd);
          x->zmq_socket = NULL;
       } else {
          _zmq_error(zmq_errno());
