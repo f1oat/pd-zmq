@@ -61,7 +61,7 @@ typedef struct _zmq {
 static void _zmq_about(void);
 static void _zmq_version(void);
 static void _zmq_create_socket(t_zmq *x, t_symbol *s);
-static void _zmq_error(int err);
+static void _zmq_error(t_zmq *x, int err);
 static void _zmq_msg_tick(t_zmq *x);
 static void _zmq_close(t_zmq *x);
 static void _zmq_start_receiver(t_zmq *x);
@@ -261,7 +261,7 @@ static void zmq_bang(t_zmq *x) {
    }
    int r = zmq_send(x->zmq_socket, "", 0, ZMQ_DONTWAIT);
    if(r == -1) {
-      _zmq_error(zmq_errno());
+      _zmq_error(x, zmq_errno());
       return;
    }
 }
@@ -285,7 +285,7 @@ static void _zmq_bind(t_zmq *x, t_symbol *s) {
       x->socket_state = BOUND;
       post("socket bound");
    }
-   else _zmq_error(zmq_errno());
+   else _zmq_error(x, zmq_errno());
 }
 /**
  * unbind a socket from the specified endpoint
@@ -304,7 +304,7 @@ static void _zmq_unbind(t_zmq *x, t_symbol *s) {
       x->socket_state = NONE;
       post("socket unbound");
    }
-   else _zmq_error(zmq_errno());
+   else _zmq_error(x, zmq_errno());
 }
 
 /**
@@ -324,7 +324,7 @@ static void _zmq_connect(t_zmq *x, t_symbol *s) {
       x->socket_state = CONNECTED;
       post("socket connected");
    }
-   else _zmq_error(zmq_errno());
+   else _zmq_error(x, zmq_errno());
 }
 /**
  * disconnect from specified endpoint
@@ -343,7 +343,7 @@ static void _zmq_disconnect(t_zmq *x, t_symbol *s) {
       x->socket_state = NONE;
       post("socket discconnected");
    }
-   else _zmq_error(zmq_errno());
+   else _zmq_error(x, zmq_errno());
 }
 
 /**
@@ -363,7 +363,7 @@ static void _zmq_close(t_zmq *x) {
          sys_rmpollfn(x->zmq_fd);
          x->zmq_socket = NULL;
       } else {
-         _zmq_error(zmq_errno());
+         _zmq_error(x, zmq_errno());
       }
    }
 }
@@ -374,7 +374,7 @@ static void _zmq_close(t_zmq *x) {
 static void _zmq_send(t_zmq *x, t_symbol *s, int argc, t_atom* argv) {
 
    if ( ! x->zmq_socket) {
-      post("[!] create and connect socket before sending");
+      pd_error(x, "create and connect socket before sending");
       return;
    }
 
@@ -396,7 +396,7 @@ static void _zmq_send(t_zmq *x, t_symbol *s, int argc, t_atom* argv) {
    binbuf_free(b);
 
    if(r == -1) {
-      _zmq_error(zmq_errno());
+      _zmq_error(x, zmq_errno());
       return;
    }
 
@@ -412,7 +412,7 @@ static void _zmq_send(t_zmq *x, t_symbol *s, int argc, t_atom* argv) {
 static void _zmq_send_array(t_zmq *x,  t_symbol *topic, t_symbol *name)
 {
    if ( ! x->zmq_socket) {
-      post("[!] create and connect socket before sending");
+      pd_error(x, "create and connect socket before sending");
       return;
    }
 
@@ -461,7 +461,7 @@ static void _zmq_send_array(t_zmq *x,  t_symbol *topic, t_symbol *name)
    free(buf);
 
    if(r == -1) {
-      _zmq_error(zmq_errno());
+      _zmq_error(x, zmq_errno());
       return;
    }
 
@@ -538,7 +538,7 @@ static void _zmq_receive(t_zmq *x) {
           outlet_bang(x->s_out);
        }
        if((err=zmq_errno()) != EAGAIN) {
-          _zmq_error(err);
+          _zmq_error(x, err);
        }
    }
 }
@@ -597,10 +597,10 @@ static char _can_send(t_zmq *x) {
          if (x->socket_state == CONNECTED || x->socket_state == BOUND) {
              return TRUE;
          }
-         post("[!] socket not connected or bound");
+         pd_error(x, "socket not connected or bound");
          break;
       default:
-         post("[!] socket type does not allow send");
+         pd_error(x, "socket type does not allow send");
    }
    return FALSE;
 }
@@ -617,10 +617,10 @@ static char _can_receive(t_zmq *x) {
          if (x->socket_state == CONNECTED || x->socket_state == BOUND) {
              return TRUE;
          }
-         post("[!] socket not connected or bound");
+         pd_error(x, "socket not connected or bound");
          break;
       default:
-         post("[!] socket type does not allow receive");
+         pd_error(x, "socket type does not allow receive");
    }
    return FALSE;
 }
@@ -640,8 +640,8 @@ static void _s_set_identity (t_zmq *x) {
 /**
  * error translator
  */
-static void _zmq_error(int err) {
-   post("[!] %s",zmq_strerror(err));
+static void _zmq_error(t_zmq *x, int err) {
+   pd_error(x, "[zmq] %s",zmq_strerror(err));
    /*
    switch(errno) {
       case EINVAL:
